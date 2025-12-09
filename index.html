@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>手机进销存 Ultimate Fixed</title>
+    <link rel="icon" href="data:,">
+
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <style>
+        /* 全局样式 */
+        body { margin: 0; background-color: #f0f2f5; font-family: 'Helvetica Neue', Arial, sans-serif; overflow: hidden; }
+
+        .layout-container { display: flex; height: 100vh; width: 100vw; }
+        .sidebar { width: 220px; background-color: #001529; color: #fff; height: 100%; overflow-y: auto; flex-shrink: 0; transition: all 0.3s; }
+        .main-content { flex: 1; height: 100%; overflow-y: auto; padding: 15px; background: #f0f2f5; position: relative; display: flex; flex-direction: column; }
+
+        .mobile-menu-btn { display: none; cursor: pointer; margin-right: 15px; color: #333; }
+
+        @media (max-width: 768px) {
+            .sidebar { display: none !important; width: 0 !important; }
+            .main-content { width: 100% !important; padding: 10px; }
+            .mobile-menu-btn { display: block !important; }
+            .header-bar { padding: 8px 10px !important; }
+            .el-pagination { justify-content: center; }
+            .el-pagination .el-pager li:not(.is-active) { display: none; }
+        }
+
+        .stat-card { text-align: center; padding: 20px 0; color: #fff; border-radius: 4px; margin-bottom: 10px; cursor: pointer; transition: transform 0.2s; position: relative; overflow: hidden; }
+        .stat-card:active { transform: scale(0.98); }
+        .stat-card::after { content:''; position: absolute; top:0; left:0; width:100%; height:100%; background: linear-gradient(rgba(255,255,255,0.1), rgba(255,255,255,0)); pointer-events: none; }
+        .stat-num { font-size: 24px; font-weight: bold; margin-top: 5px; }
+        .chart-box { background: #fff; padding: 15px; margin-top: 15px; border-radius: 4px; height: 300px; }
+
+        .pos-product-card { cursor: pointer; margin-bottom: 10px; border: 1px solid #eee; background: #fff; border-radius: 4px; overflow: hidden; position: relative; transition: all 0.2s; }
+        .pos-product-card:active { background: #f0f9eb; transform: scale(0.98); }
+        .pos-img { width: 100%; height: 100px; object-fit: cover; background: #f5f7fa; }
+        .out-of-stock-mask { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.85); display: flex; justify-content: center; align-items: center; color: #f56c6c; font-weight: bold; font-size: 14px; z-index: 2; border: 2px solid #f56c6c; pointer-events: none; }
+
+        .pagination-container { background: #fff; padding: 10px; display: flex; justify-content: flex-end; border-top: 1px solid #eee; flex-wrap: wrap; }
+        .detail-card { background: #f9fafc; padding: 15px; border-radius: 4px; margin-bottom: 15px; border: 1px solid #eee; }
+        .detail-item { display: flex; margin-bottom: 8px; font-size: 14px; }
+        .detail-label { color: #666; width: 70px; flex-shrink: 0; }
+        .detail-val { color: #333; font-weight: 500; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div v-if="!currentUser" style="height:100vh; display:flex; justify-content:center; align-items:center; background:#2d3a4b;">
+        <el-card style="width:90%; max-width:400px;">
+            <h2 style="text-align:center;">系统登录</h2>
+            <el-input v-model="loginForm.username" placeholder="账号" style="margin-bottom:15px" size="large"></el-input>
+            <el-input v-model="loginForm.password" type="password" placeholder="密码" style="margin-bottom:15px" size="large"></el-input>
+            <el-button type="primary" style="width:100%;" @click="handleLogin" :loading="loading" size="large">登录</el-button>
+        </el-card>
+    </div>
+
+    <div v-else class="layout-container">
+        <div class="sidebar">
+            <h3 style="text-align:center; padding:20px 0; margin:0; background:#002140;">PSI SYSTEM</h3>
+            <el-menu active-text-color="#409EFF" background-color="#001529" text-color="#fff" :default-active="activeTab" @select="key => activeTab = key" style="border:none;">
+                <el-menu-item index="dashboard"><el-icon><Odometer /></el-icon><span>仪表盘</span></el-menu-item>
+                <el-menu-item index="pos"><el-icon><ShoppingCart /></el-icon><span>收银台</span></el-menu-item>
+                <el-menu-item index="inventory"><el-icon><Box /></el-icon><span>库存管理</span></el-menu-item>
+                <el-menu-item index="orders"><el-icon><List /></el-icon><span>销售历史</span></el-menu-item>
+                <el-menu-item index="staff"><el-icon><User /></el-icon><span>员工管理</span></el-menu-item>
+                <el-menu-item index="logs"><el-icon><Document /></el-icon><span>操作日志</span></el-menu-item>
+            </el-menu>
+        </div>
+
+        <div class="main-content">
+            <div class="header-bar" style="background:#fff; padding:12px; display:flex; justify-content:space-between; align-items:center; border-radius:4px; margin-bottom:15px; box-shadow:0 2px 6px rgba(0,0,0,0.05); flex-shrink:0;">
+                <div style="display:flex; align-items:center;">
+                    <div class="mobile-menu-btn" @click="mobileDrawer = true"><el-icon size="24"><Menu /></el-icon></div>
+                    <span style="font-weight:bold; font-size:16px;">{{ pageTitles[activeTab] }}</span>
+                </div>
+                <div>
+                    <span style="font-size:14px; margin-right:5px;">{{ currentUser.real_name }}</span>
+                    <el-dropdown trigger="click">
+                        <span style="cursor:pointer; display:flex; align-items:center;"><el-icon size="18"><Setting /></el-icon></span>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item @click="showPwdDialog=true">修改密码</el-dropdown-item>
+                                <el-dropdown-item divided @click="logout" style="color:#f56c6c;">退出登录</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
+                </div>
+            </div>
+
+            <div v-if="activeTab === 'dashboard'" style="overflow-y:auto;">
+                <el-row :gutter="10">
+                    <el-col :span="8" :xs="12"><div class="stat-card" style="background:#409EFF;" @click="goToSalesHistory"><div class="stat-label">今日应收</div><div class="stat-num">¥{{ stats.today_sales_receivable }}</div></div></el-col>
+                    <el-col :span="8" :xs="12"><div class="stat-card" style="background:#67C23A;" @click="goToSalesHistory"><div class="stat-label">今日实收</div><div class="stat-num">¥{{ stats.today_sales_actual }}</div></div></el-col>
+                    <el-col :span="8" :xs="24" v-if="currentUser.role === 'admin'"><div class="stat-card" style="background:#E6A23C;" @click="goToSalesHistory"><div class="stat-label">今日利润</div><div class="stat-num">¥{{ stats.today_profit }}</div></div></el-col>
+                </el-row>
+                <el-row :gutter="10">
+                    <el-col :span="12" :xs="12"><div class="stat-card" style="background:#909399;" @click="goToInventory(false)"><div class="stat-label">总库存数</div><div class="stat-num">{{ stats.total_stock }}</div></div></el-col>
+                    <el-col :span="12" :xs="12"><div class="stat-card" style="background:#F56C6C;" @click="goToInventory(true)"><div class="stat-label">缺货预警</div><div class="stat-num">{{ stats.low_stock_alert }}</div></div></el-col>
+                </el-row>
+                <div class="chart-box" id="salesChart"></div>
+            </div>
+
+            <div v-if="activeTab === 'pos'" style="display:flex; flex:1; overflow:hidden;">
+                <el-row :gutter="10" style="width:100%; height:100%;">
+                    <el-col :xs="24" :sm="16" style="height:100%; display:flex; flex-direction:column;">
+                        <div style="background:#f0f2f5; padding-bottom:10px; display:flex; gap:5px;">
+                            <el-select v-model="filterCategory" placeholder="分类" style="width:90px" @change="handleCategoryChange">
+                                <el-option label="全部" value=""></el-option><el-option label="手机" value="phone"></el-option><el-option label="配件" value="accessory"></el-option>
+                            </el-select>
+                            <el-input v-model="searchQuery" placeholder="搜索品牌或型号..." prefix-icon="Search" clearable style="flex:1" @input="posPage=1"></el-input>
+                        </div>
+                        <div style="flex:1; overflow-y:auto;">
+                            <el-row :gutter="8">
+                                <el-col :xs="12" :sm="8" :md="8" v-for="item in paginatedPosProducts" :key="item.id">
+                                    <div class="pos-product-card" @click="addToCart(item)" :style="{borderColor: item.stock_quantity<=0?'#fab6b6':''}">
+                                        <div v-if="item.stock_quantity <= 0" class="out-of-stock-mask">已售罄</div>
+                                        <div @click.stop style="height:100px; width:100%; background:#f5f7fa;">
+                                            <el-image style="width: 100%; height: 100%" :src="item.images || 'https://via.placeholder.com/150?text=No+Img'" :preview-src-list="item.images ? [item.images] : []" fit="cover" hide-on-click-modal preview-teleported></el-image>
+                                        </div>
+                                        <div style="padding:8px 6px;">
+                                            <div style="font-size:12px; color:#666; margin-bottom:2px;">{{ item.brand }} <span v-if="item.accessory_type" style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">{{item.accessory_type}}</span></div>
+                                            <div style="font-size:13px; font-weight:bold; height:18px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:#333;">{{ item.model }}</div>
+                                            <div style="display:flex; justify-content:space-between; margin-top:6px; align-items:center;">
+                                                <span style="color:#f56c6c; font-weight:bold; font-size:14px;">¥{{ item.selling_price }}</span>
+                                                <el-tag size="small" :type="item.stock_quantity>0?'success':'danger'" effect="plain" style="transform:scale(0.9);">{{ item.stock_quantity }}件</el-tag>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </el-col>
+                            </el-row>
+                        </div>
+                        <div class="pagination-container">
+                            <el-pagination background layout="total, prev, pager, next, jumper" :total="filteredProducts.length" :page-size="6" v-model:current-page="posPage"></el-pagination>
+                        </div>
+                    </el-col>
+                    <el-col :xs="24" :sm="8" class="hidden-xs-only" style="height:100%; display:flex; flex-direction:column;">
+                        <el-card style="flex:1; display:flex; flex-direction:column;">
+                            <template #header><div style="font-weight:bold">购物车 ({{ cart.length }})</div></template>
+                            <div style="flex:1; overflow-y:auto;">
+                                <div v-for="(item, idx) in cart" :key="idx" style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px dashed #eee;">
+                                    <div><div style="font-size:12px; color:#888;">{{ item.brand }}</div><div style="font-weight:500;">{{ item.model }} <span style="color:#999; font-size:12px;">x{{ item.qty }}</span></div></div>
+                                    <div>¥{{ item.selling_price*item.qty }} <el-icon color="red" style="cursor:pointer; margin-left:5px" @click="cart.splice(idx,1)"><Delete /></el-icon></div>
+                                </div>
+                            </div>
+                            <div style="border-top:1px solid #eee; padding-top:10px;">
+                                <div style="text-align:right; font-weight:bold; font-size:18px; margin-bottom:10px;">¥{{ cartTotal }}</div>
+                                <el-button type="primary" style="width:100%" size="large" @click="openCheckoutDialog" :disabled="!cart.length">结账</el-button>
+                                <el-button text style="width:100%" @click="cart=[]">清空</el-button>
+                            </div>
+                        </el-card>
+                    </el-col>
+                </el-row>
+            </div>
+
+            <div v-if="activeTab === 'inventory'" style="display:flex; flex-direction:column; height:100%;">
+                <el-card shadow="never" :body-style="{padding:'10px', flex:'1', display:'flex', flexDirection:'column'}" style="flex:1; display:flex; flex-direction:column;">
+                    <div style="margin-bottom:10px; display:flex; gap:5px;">
+                        <el-button type="primary" icon="Plus" @click="openProductDialog(null)" style="padding:8px 15px;">入库</el-button>
+                        <el-select v-model="filterCategory" placeholder="分类" style="width:90px" @change="handleCategoryChange">
+                            <el-option label="全部" value=""></el-option><el-option label="手机" value="phone"></el-option><el-option label="配件" value="accessory"></el-option>
+                        </el-select>
+                        <el-input v-model="searchQuery" placeholder="搜索..." prefix-icon="Search" style="flex:1" @input="invPage=1"></el-input>
+                    </div>
+                    <div style="flex:1; overflow:hidden;">
+                        <el-table :data="paginatedInvProducts" stripe border height="100%">
+                            <el-table-column label="图" width="50"><template #default="s"><el-image :src="s.row.images" style="width:30px;height:30px;border-radius:2px" :preview-src-list="[s.row.images]" preview-teleported hide-on-click-modal></el-image></template></el-table-column>
+                            <el-table-column prop="brand" label="品牌" width="80" show-overflow-tooltip></el-table-column>
+                            <el-table-column prop="model" label="型号" min-width="110" show-overflow-tooltip><template #default="s"><el-tag size="small" type="info" v-if="s.row.accessory_type" style="margin-right:5px">{{s.row.accessory_type}}</el-tag>{{s.row.model}}</template></el-table-column>
+                            <el-table-column prop="stock_quantity" label="库存" width="70"><template #default="s"><span :style="{color:s.row.stock_quantity<5?'red':'green', fontWeight:'bold'}">{{s.row.stock_quantity}}</span></template></el-table-column>
+                            <el-table-column prop="selling_price" label="售价" width="80"><template #default="s">¥{{s.row.selling_price}}</template></el-table-column>
+                            <el-table-column label="操作" width="60" fixed="right"><template #default="s"><el-button link type="primary" @click="openProductDialog(s.row)">编辑</el-button></template></el-table-column>
+                        </el-table>
+                    </div>
+                    <div class="pagination-container">
+                        <el-pagination background layout="total, prev, pager, next, jumper" :total="filteredProducts.length" :page-size="6" v-model:current-page="invPage"></el-pagination>
+                    </div>
+                </el-card>
+            </div>
+
+            <div v-if="activeTab === 'orders'" style="display:flex; flex-direction:column; height:100%;">
+                <div style="padding: 10px; background: #fff; display: flex; gap:10px; border-bottom: 1px solid #eee; flex-wrap:wrap;">
+                    <el-date-picker v-model="searchDate" type="date" placeholder="选择日期" format="YYYY-MM-DD" value-format="YYYY-MM-DD" style="width: 140px" @change="orderPage=1"></el-date-picker>
+                    <el-input v-model="searchQueryOrder" placeholder="搜索订单号 / 买家..." prefix-icon="Search" clearable @input="orderPage=1" style="flex:1; min-width:150px;"></el-input>
+                    <el-button @click="searchDate='';searchQueryOrder=''">重置</el-button>
+                </div>
+                <div style="flex:1; overflow:hidden;">
+                    <el-table :data="paginatedOrders" stripe border height="100%">
+                        <el-table-column prop="order_no" label="订单号" width="130" show-overflow-tooltip></el-table-column>
+                        <el-table-column prop="created_at" label="时间" width="100" show-overflow-tooltip></el-table-column>
+                        <el-table-column prop="actual_amount" label="实收" width="80"><template #default="s"><span style="color:#67C23A;font-weight:bold">¥{{s.row.actual_amount}}</span></template></el-table-column>
+                        <el-table-column label="买家" width="80" show-overflow-tooltip><template #default="s">{{s.row.buyer_name || '散客'}}</template></el-table-column>
+                        <el-table-column prop="payment_method" label="支付" width="70"></el-table-column>
+                        <el-table-column label="操作"><template #default="s"><el-button link type="primary" @click="viewOrderDetails(s.row)">详情</el-button></template></el-table-column>
+                    </el-table>
+                </div>
+                <div class="pagination-container">
+                    <el-pagination background layout="total, prev, pager, next, jumper" :total="filteredOrders.length" :page-size="10" v-model:current-page="orderPage"></el-pagination>
+                </div>
+            </div>
+
+            <div v-if="activeTab === 'staff'">
+                <el-card>
+                    <div v-if="currentUser.role==='admin'" style="margin-bottom:10px"><el-button type="primary" @click="showUserDialog=true">添加员工</el-button></div>
+                    <el-table :data="users" border>
+                        <el-table-column prop="username" label="账号"></el-table-column>
+                        <el-table-column prop="real_name" label="姓名"></el-table-column>
+                        <el-table-column label="操作"><template #default="s"><el-button v-if="currentUser.role==='admin'" link type="danger" @click="deleteUser(s.row.id)" :disabled="s.row.id==1">删除</el-button></template></el-table-column>
+                    </el-table>
+                </el-card>
+            </div>
+
+            <div v-if="activeTab === 'logs'" style="display:flex; flex-direction:column; height:100%;">
+                <div style="padding: 10px; background: #fff; display: flex; gap: 10px; border-bottom: 1px solid #eee;">
+                    <el-select v-model="filterLogType" placeholder="日志类型" clearable style="width: 140px" @change="logPage=1">
+                        <el-option v-for="(label, key) in logTypeMap" :key="key" :label="label" :value="key"></el-option>
+                    </el-select>
+                    <el-input v-model="searchQueryLog" placeholder="搜索日志内容..." prefix-icon="Search" clearable @input="logPage=1" style="flex:1"></el-input>
+                </div>
+                <div style="flex:1; overflow:hidden;">
+                    <el-table :data="paginatedLogs" stripe border height="100%">
+                        <el-table-column prop="created_at" label="时间" width="150"></el-table-column>
+                        <el-table-column prop="real_name" label="操作人" width="80"></el-table-column>
+                        <el-table-column label="类型" width="100">
+                            <template #default="s">
+                                <el-tag :type="getLogTagType(s.row.action_type)" size="small">
+                                    {{ logTypeMap[s.row.action_type] || s.row.action_type }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="content" label="操作内容" min-width="150" show-overflow-tooltip></el-table-column>
+                    </el-table>
+                </div>
+                <div class="pagination-container">
+                    <el-pagination background layout="total, prev, pager, next, jumper" :total="filteredLogs.length" :page-size="10" v-model:current-page="logPage"></el-pagination>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div v-if="currentUser && activeTab==='pos'" class="hidden-sm-and-up" style="position:fixed; bottom:20px; right:20px; z-index:999;">
+        <el-badge :value="cart.length" :max="99"><div @click="mobileCartVisible=true" style="width:56px; height:56px; background:#409EFF; border-radius:50%; display:flex; justify-content:center; align-items:center; box-shadow:0 4px 12px rgba(64,158,255,0.4); color:#fff;"><el-icon size="26"><ShoppingCart /></el-icon></div></el-badge>
+    </div>
+    <el-drawer v-model="mobileDrawer" :with-header="false" direction="ltr" size="65%"><div style="height:100%; background:#001529; padding-top:20px;"><h3 style="text-align:center; color:#fff; margin-bottom:20px;">系统菜单</h3><el-menu active-text-color="#ffd04b" background-color="#001529" text-color="#fff" :default-active="activeTab" @select="k=>{activeTab=k;mobileDrawer=false}" style="border:none;"><el-menu-item index="dashboard">仪表盘</el-menu-item><el-menu-item index="pos">收银台</el-menu-item><el-menu-item index="inventory">库存管理</el-menu-item><el-menu-item index="orders">销售历史</el-menu-item><el-menu-item index="staff">员工管理</el-menu-item><el-menu-item index="logs">系统日志</el-menu-item></el-menu></div></el-drawer>
+    <el-drawer v-model="mobileCartVisible" title="购物车" direction="btt" size="75%"><div style="height:100%; display:flex; flex-direction:column;"><div style="flex:1; overflow-y:auto; padding:10px;"><div v-for="(item, idx) in cart" :key="idx" style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;"><div><div style="font-weight:bold;">{{item.model}}</div><div style="color:#999; font-size:12px;">¥{{item.selling_price}} x {{item.qty}}</div></div><div style="display:flex; align-items:center;"><span style="font-weight:bold; margin-right:10px;">¥{{item.selling_price*item.qty}}</span><el-icon color="red" size="20" @click="cart.splice(idx,1)"><Delete/></el-icon></div></div></div><div style="padding:15px; border-top:1px solid #eee;"><div style="text-align:right; font-size:18px; font-weight:bold; margin-bottom:10px;">合计: ¥{{cartTotal}}</div><el-button type="primary" size="large" style="width:100%" @click="openCheckoutDialog">确认结账</el-button></div></div></el-drawer>
+    <el-dialog v-model="showCheckoutDialog" title="结账确认" width="90%" style="max-width:500px"><el-form :model="checkoutForm" label-width="70px"><el-divider content-position="left">买家信息</el-divider><el-form-item label="姓名"><el-input v-model="checkoutForm.buyer_name" placeholder="请输入姓名(选填)"></el-input></el-form-item><el-form-item label="联系"><el-input v-model="checkoutForm.buyer_phone" placeholder="电话(选填)"></el-input></el-form-item><el-form-item label="地址"><el-input v-model="checkoutForm.buyer_address" placeholder="地址(选填)"></el-input></el-form-item><el-divider content-position="left">支付详情</el-divider><el-form-item label="方式"><el-select v-model="checkoutForm.payment_method" style="width:100%"><el-option value="微信支付" label="微信支付"></el-option><el-option value="支付宝" label="支付宝"></el-option><el-option value="现金" label="现金"></el-option><el-option value="银行卡" label="银行卡"></el-option></el-select></el-form-item><div style="background:#fef0f0; padding:10px; border-radius:4px; margin-top:10px;"><div style="display:flex; justify-content:space-between; margin-bottom:5px; color:#999; font-size:14px;"><span>订单原价:</span><span>¥{{cartTotal}}</span></div><div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-weight:bold;">实收金额:</span><el-input-number v-model="checkoutForm.actual_amount" :min="0" :precision="2" :controls="false" style="width:120px;"></el-input-number></div></div></el-form><template #footer><el-button @click="showCheckoutDialog=false">取消</el-button><el-button type="primary" @click="submitOrder">确认收款</el-button></template></el-dialog>
+
+    <el-dialog v-model="showOrderDetailDialog" title="订单详情" width="90%" style="max-width:600px"><div class="detail-card"><div class="detail-item"><div class="detail-label">订单号:</div><div class="detail-val">{{currentOrderInfo.order_no}}</div></div><div class="detail-item"><div class="detail-label">时间:</div><div class="detail-val">{{currentOrderInfo.created_at}}</div></div><div class="detail-item"><div class="detail-label">经手人:</div><div class="detail-val">{{currentOrderInfo.handler_name}}</div></div><div class="detail-item"><div class="detail-label">买家:</div><div class="detail-val">{{currentOrderInfo.buyer_name || '-'}} {{currentOrderInfo.buyer_phone}}</div></div><div class="detail-item" v-if="currentOrderInfo.buyer_address"><div class="detail-label">地址:</div><div class="detail-val">{{currentOrderInfo.buyer_address}}</div></div><div class="detail-item"><div class="detail-label">支付:</div><div class="detail-val">{{currentOrderInfo.payment_method}}</div></div></div><el-table :data="currentOrderItems" border size="small" stripe><el-table-column label="类型" width="60"><template #default="s"><el-tag size="small">{{s.row.type==='phone'?'手机':'配件'}}</el-tag></template></el-table-column><el-table-column prop="model" label="商品名称"></el-table-column><el-table-column label="原价" width="70"><template #default="s">¥{{s.row.price}}</template></el-table-column><el-table-column prop="quantity" label="数量" width="50"></el-table-column></el-table><div style="margin-top:15px; text-align:right; border-top:1px solid #eee; padding-top:10px;"><div style="color:#999; font-size:14px;">原价总计: ¥{{currentOrderInfo.total_amount}}</div><div style="color:#f56c6c; font-weight:bold; font-size:18px;">实付款: ¥{{currentOrderInfo.actual_amount}}</div></div><div style="margin-top:15px;text-align:center"><el-button @click="showOrderDetailDialog = false" style="width:100%">关闭</el-button></div></el-dialog>
+
+    <el-dialog v-model="showProductDialog" :title="isEditMode?'编辑':'入库'" width="90%" style="max-width:500px"><el-form :model="prodForm" label-width="60px"><el-form-item label="图片"><el-upload action="./api.php?action=upload" :show-file-list="false" :on-success="(r)=>prodForm.images=r.url"><img v-if="prodForm.images" :src="prodForm.images" style="width:80px;height:80px;display:block"/><el-icon v-else style="width:80px;height:80px;border:1px dashed #ddd;line-height:80px;text-align:center"><Plus/></el-icon></el-upload></el-form-item><el-form-item label="类型"><el-radio-group v-model="prodForm.type"><el-radio label="phone">手机</el-radio><el-radio label="accessory">配件</el-radio></el-radio-group></el-form-item><el-form-item label="分类" v-if="prodForm.type === 'accessory'"><el-select v-model="prodForm.accessory_type" filterable allow-create default-first-option placeholder="选择或输入类型" style="width: 100%"><el-option v-for="t in uniqueAccessoryTypes" :key="t" :label="t" :value="t"></el-option></el-select></el-form-item><el-form-item label="品牌"><el-select v-model="prodForm.brand" filterable allow-create default-first-option placeholder="品牌" style="width: 100%"><el-option v-for="item in uniqueBrands" :key="item" :label="item" :value="item"></el-option></el-select></el-form-item><el-form-item label="型号"><el-select v-model="prodForm.model" filterable allow-create default-first-option :placeholder="prodForm.brand?'型号':'先选品牌'" style="width: 100%"><el-option v-for="item in uniqueModels" :key="item" :label="item" :value="item"></el-option></el-select></el-form-item><el-form-item label="进价"><el-input v-model="prodForm.purchase_price" type="number"></el-input></el-form-item><el-form-item label="售价"><el-input v-model="prodForm.selling_price" type="number"></el-input></el-form-item><el-form-item label="库存"><el-input-number v-model="prodForm.stock_quantity" :min="0"></el-input-number></el-form-item></el-form><template #footer><el-button @click="showProductDialog=false">取消</el-button><el-button type="primary" @click="saveProduct">保存</el-button></template></el-dialog>
+    <el-dialog v-model="showPwdDialog" title="修改密码" width="80%" style="max-width:400px"><el-form :model="pwdForm" label-width="70px"><el-form-item label="旧密码"><el-input v-model="pwdForm.old_password" type="password"></el-input></el-form-item><el-form-item label="新密码"><el-input v-model="pwdForm.new_password" type="password"></el-input></el-form-item></el-form><template #footer><el-button @click="showPwdDialog=false">取消</el-button><el-button type="primary" @click="changePassword">确认</el-button></template></el-dialog>
+    <el-dialog v-model="showUserDialog" title="添加员工" width="80%" style="max-width:400px"><el-form :model="userForm"><el-form-item label="账号"><el-input v-model="userForm.username"></el-input></el-form-item><el-form-item label="姓名"><el-input v-model="userForm.real_name"></el-input></el-form-item><el-form-item label="密码"><el-input v-model="userForm.password"></el-input></el-form-item><el-form-item label="角色"><el-select v-model="userForm.role"><el-option label="员工" value="staff"></el-option><el-option label="管理员" value="admin"></el-option></el-select></el-form-item></el-form><template #footer><el-button @click="showUserDialog=false">取消</el-button><el-button type="primary" @click="addUser">保存</el-button></template></el-dialog>
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script src="https://unpkg.com/element-plus"></script>
+<script src="https://unpkg.com/@element-plus/icons-vue/dist/index.iife.min.js"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<script src="https://unpkg.com/echarts/dist/echarts.min.js"></script>
+
+<script>
+    const { createApp, ref, computed, watch, nextTick, onMounted } = Vue;
+    const app = createApp({
+        setup() {
+            const currentUser = ref(null);
+            const loading = ref(false);
+            const activeTab = ref('dashboard');
+            const mobileDrawer = ref(false);
+            const mobileCartVisible = ref(false);
+            const API_URL = './api.php';
+
+            // 日志中文映射
+            const logTypeMap = {
+                'LOGIN': '系统登录',
+                'CREATE': '商品入库',
+                'UPDATE': '商品编辑',
+                'SALE': '销售开单',
+                'USER_ADD': '添加员工',
+                'USER_DEL': '删除员工',
+                'PWD_CHANGE': '修改密码'
+            };
+
+            const getLogTagType = (type) => {
+                const map = { 'SALE': 'success', 'CREATE': 'primary', 'UPDATE': 'warning', 'LOGIN': 'info', 'USER_DEL': 'danger' };
+                return map[type] || '';
+            };
+
+            const products = ref([]);
+            const users = ref([]);
+            const orders = ref([]);
+            const logs = ref([]);
+            const stats = ref({});
+            const cart = ref([]);
+
+            const searchQuery = ref('');
+            const filterCategory = ref('');
+            const searchQueryLog = ref('');
+            const filterLogType = ref('');
+            const searchQueryOrder = ref('');
+            const searchDate = ref('');
+            const lowStockFilter = ref(false);
+
+            const posPage = ref(1);
+            const invPage = ref(1);
+            const orderPage = ref(1);
+            const logPage = ref(1);
+
+            const loginForm = ref({username:'', password:''});
+            const prodForm = ref({});
+            const userForm = ref({role:'staff'});
+            const pwdForm = ref({old_password:'', new_password:''});
+
+            const showCheckoutDialog = ref(false);
+            const checkoutForm = ref({buyer_name:'', buyer_phone:'', buyer_address:'', payment_method:'微信支付', actual_amount:0});
+
+            const showProductDialog = ref(false);
+            const showUserDialog = ref(false);
+            const showPwdDialog = ref(false);
+            const isEditMode = ref(false);
+            const showOrderDetailDialog = ref(false);
+            const currentOrderItems = ref([]);
+            const currentOrderInfo = ref({});
+
+            const pageTitles = {dashboard:'仪表盘', pos:'收银台', inventory:'库存管理', orders:'销售历史', staff:'员工管理', logs:'操作日志'};
+            let chartInstance = null;
+
+            onMounted(() => {
+                const cachedUser = localStorage.getItem('psi_user');
+                if (cachedUser) {
+                    try { currentUser.value = JSON.parse(cachedUser); loadData('dashboard'); } catch(e) { localStorage.removeItem('psi_user'); }
+                }
+            });
+
+            const loadData = async (tab) => {
+                const actions = { dashboard:'dashboard', inventory:'products', pos:'products', staff:'users', orders:'orders', logs:'logs' };
+                if(!actions[tab]) return;
+                let url = `${API_URL}?action=${actions[tab]}`;
+                if(tab === 'logs' || tab === 'dashboard') url += `&user_id=${currentUser.value.id}`;
+
+                try {
+                    const res = await axios.get(url);
+                    if(res.data.status === 'success') {
+                        if(tab==='dashboard') { stats.value=res.data.data; initChart(); }
+                        else if(tab==='inventory'||tab==='pos') products.value=res.data.data;
+                        else if(tab==='staff') users.value=res.data.data;
+                        else if(tab==='orders') orders.value=res.data.data;
+                        else if(tab==='logs') logs.value=res.data.data;
+                    }
+                } catch(e){}
+            };
+
+            const initChart = async () => {
+                await nextTick();
+                const dom = document.getElementById('salesChart');
+                if(!dom) return;
+                const res = await axios.get(`${API_URL}?action=sales_trend`);
+                if(res.data.status !== 'success') return;
+                const dates = res.data.data.map(d=>d.date.substr(5));
+                const values = res.data.data.map(d=>d.total);
+                if(chartInstance) chartInstance.dispose();
+                chartInstance = echarts.init(dom);
+                chartInstance.setOption({title:{text:'近7天趋势',left:'center'},tooltip:{trigger:'axis'},grid:{left:40,right:20,bottom:30,top:40},xAxis:{type:'category',data:dates},yAxis:{type:'value'},series:[{data:values,type:'line',smooth:true,areaStyle:{},color:'#409EFF'}]});
+                window.onresize = () => chartInstance.resize();
+            };
+
+            watch(activeTab, (val)=>{ if(currentUser.value) loadData(val); });
+
+            const handleLogin = async () => {
+                const res = await axios.post(API_URL+'?action=login', loginForm.value);
+                if(res.data.status==='success') { currentUser.value=res.data.data; localStorage.setItem('psi_user', JSON.stringify(res.data.data)); loadData('dashboard'); }
+                else ElementPlus.ElMessage.error(res.data.message);
+            };
+
+            const logout = () => { currentUser.value = null; localStorage.removeItem('psi_user'); loginForm.value = {username:'', password:''}; };
+
+            const handleCategoryChange = () => { searchQuery.value = ''; posPage.value = 1; invPage.value = 1; };
+
+            // --- 跳转逻辑 ---
+            const goToSalesHistory = () => {
+                activeTab.value = 'orders';
+                const today = new Date();
+                searchDate.value = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+                orderPage.value = 1;
+                loadData('orders');
+            };
+
+            const goToInventory = (showLowStock) => {
+                activeTab.value = 'inventory';
+                lowStockFilter.value = showLowStock;
+                searchQuery.value = '';
+                filterCategory.value = '';
+                invPage.value = 1;
+                loadData('inventory');
+            };
+
+            const filteredProducts = computed(() => {
+                let res = products.value;
+                if (lowStockFilter.value) res = res.filter(p => p.stock_quantity < 5);
+                if (filterCategory.value) res = res.filter(p => p.type === filterCategory.value);
+                if (searchQuery.value) {
+                    const q = searchQuery.value.toLowerCase();
+                    res = res.filter(p => p.model.toLowerCase().includes(q) || (p.brand && p.brand.toLowerCase().includes(q)));
+                }
+                return res;
+            });
+
+            const filteredLogs = computed(() => {
+                let res = logs.value;
+                if (filterLogType.value) res = res.filter(l => l.action_type === filterLogType.value);
+                if (searchQueryLog.value) {
+                    const q = searchQueryLog.value.toLowerCase();
+                    res = res.filter(l => l.content.toLowerCase().includes(q));
+                }
+                return res;
+            });
+
+            const filteredOrders = computed(() => {
+                let res = orders.value;
+                if (searchDate.value) res = res.filter(o => o.created_at.startsWith(searchDate.value));
+                if (searchQueryOrder.value) {
+                    const q = searchQueryOrder.value.toLowerCase();
+                    res = res.filter(o => o.order_no.toLowerCase().includes(q) || (o.buyer_name && o.buyer_name.toLowerCase().includes(q)));
+                }
+                return res;
+            });
+
+            const uniqueBrands = computed(() => Array.from(new Set(products.value.map(p => p.brand).filter(b => b))));
+            const uniqueAccessoryTypes = computed(() => Array.from(new Set(products.value.filter(p => p.type === 'accessory').map(p => p.accessory_type).filter(t => t))));
+            const uniqueLogTypes = computed(() => Array.from(new Set(logs.value.map(l => l.action_type))));
+
+            const uniqueModels = computed(() => {
+                const currentBrand = prodForm.value.brand;
+                let relevantProducts = products.value;
+                if (currentBrand) relevantProducts = relevantProducts.filter(p => p.brand === currentBrand);
+                return Array.from(new Set(relevantProducts.map(p => p.model).filter(m => m)));
+            });
+
+            const paginate = (data, page, size) => { const start = (page - 1) * size; return data.slice(start, start + size); };
+            const paginatedPosProducts = computed(() => paginate(filteredProducts.value, posPage.value, 6));
+            const paginatedInvProducts = computed(() => paginate(filteredProducts.value, invPage.value, 6));
+            const paginatedOrders = computed(() => paginate(filteredOrders.value, orderPage.value, 10));
+            const paginatedLogs = computed(() => paginate(filteredLogs.value, logPage.value, 10));
+
+            const addToCart = (item) => {
+                if (item.stock_quantity <= 0) return ElementPlus.ElMessage.warning('商品已售罄');
+                const exist = cart.value.find(c=>c.id===item.id);
+                if(exist) {
+                    if (exist.qty >= item.stock_quantity) return ElementPlus.ElMessage.warning(`库存不足！当前仅有 ${item.stock_quantity} 件`);
+                    exist.qty++;
+                } else {
+                    cart.value.push({...item, qty:1});
+                }
+                ElementPlus.ElMessage.success('已加入');
+            };
+
+            const openCheckoutDialog = () => {
+                if(cart.value.length === 0) return;
+                checkoutForm.value = {
+                    buyer_name:'', buyer_phone:'', buyer_address:'', payment_method:'微信支付',
+                    actual_amount: cartTotal.value
+                };
+                showCheckoutDialog.value = true;
+            };
+
+            const submitOrder = async () => {
+                try {
+                    const payload = {
+                        user_id: currentUser.value.id,
+                        total_amount: cartTotal.value,
+                        items: cart.value,
+                        ...checkoutForm.value
+                    };
+                    const res = await axios.post(API_URL+'?action=checkout', payload);
+                    if(res.data.status === 'success') {
+                        ElementPlus.ElMessage.success('收款成功！');
+                        cart.value = [];
+                        mobileCartVisible.value = false;
+                        showCheckoutDialog.value = false;
+                        loadData('pos');
+                        loadData('dashboard');
+                    } else {
+                        ElementPlus.ElMessage.error(res.data.message || '结账失败');
+                    }
+                } catch(e){ ElementPlus.ElMessage.error('网络请求失败'); }
+            };
+
+            const viewOrderDetails = async (row) => { currentOrderInfo.value=row; const res = await axios.get(`${API_URL}?action=order_details&order_id=${row.id}`); if(res.data.status==='success') { currentOrderItems.value=res.data.data; showOrderDetailDialog.value=true; } };
+
+            const openProductDialog = (row) => {
+                isEditMode.value=!!row;
+                if(row) prodForm.value = { ...row };
+                else prodForm.value = { type:'phone', brand:'', model:'', purchase_price:'', selling_price:'', stock_quantity:1, images:'', accessory_type: '' };
+                showProductDialog.value=true;
+            };
+
+            const saveProduct = async () => {
+                try {
+                    await axios.post(`${API_URL}?action=${isEditMode.value?'update_product':'add_product'}`, {...prodForm.value, user_id:currentUser.value.id});
+                    ElementPlus.ElMessage.success(isEditMode.value ? '修改成功' : '入库成功');
+                    showProductDialog.value=false;
+                    loadData('inventory');
+                } catch(e) { ElementPlus.ElMessage.error('操作失败，请检查填写'); }
+            };
+
+            const addUser = async () => {
+                try {
+                    // 注意这里增加了 operator_id
+                    await axios.post(`${API_URL}?action=add_user`, {...userForm.value, operator_id: currentUser.value.id});
+                    ElementPlus.ElMessage.success('添加成功'); showUserDialog.value=false; loadData('staff');
+                } catch(e){ElementPlus.ElMessage.error('失败');}
+            };
+
+            const deleteUser = async (id) => {
+                try {
+                    // 注意这里增加了 operator_id
+                    await axios.post(`${API_URL}?action=delete_user`, {id, operator_id: currentUser.value.id});
+                    ElementPlus.ElMessage.success('删除成功'); loadData('staff');
+                } catch(e){ElementPlus.ElMessage.error('失败');}
+            };
+
+            const changePassword = async () => { try { const res = await axios.post(API_URL+'?action=change_password', {...pwdForm.value, user_id:currentUser.value.id}); if(res.data.status==='success') { ElementPlus.ElMessage.success('请重新登录'); logout(); showPwdDialog.value=false; } else ElementPlus.ElMessage.error(res.data.message); } catch(e){ ElementPlus.ElMessage.error('失败'); } };
+            const cartTotal = computed(()=>cart.value.reduce((s,i)=>s+i.selling_price*i.qty,0));
+
+            return {
+                currentUser, loginForm, handleLogin, logout,
+                activeTab, mobileDrawer, mobileCartVisible, pageTitles, stats,
+                products, cart, cartTotal, addToCart, openCheckoutDialog, submitOrder,
+                users, orders, logs, searchQuery, filterCategory, handleCategoryChange,
+                searchQueryLog, filterLogType, searchQueryOrder, searchDate, lowStockFilter,
+                goToSalesHistory, goToInventory,
+                paginatedPosProducts, paginatedInvProducts, paginatedOrders, paginatedLogs,
+                posPage, invPage, orderPage, logPage,
+                viewOrderDetails, showOrderDetailDialog, currentOrderItems, currentOrderInfo,
+                showProductDialog, isEditMode, prodForm, openProductDialog, saveProduct,
+                showUserDialog, userForm, addUser, deleteUser,
+                showPwdDialog, pwdForm, changePassword, filteredProducts, filteredLogs, filteredOrders,
+                uniqueBrands, uniqueModels, uniqueAccessoryTypes,
+                logTypeMap, getLogTagType,
+                showCheckoutDialog, checkoutForm
+            };
+        }
+    });
+    for(const [k,c] of Object.entries(ElementPlusIconsVue)) app.component(k,c);
+    app.use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

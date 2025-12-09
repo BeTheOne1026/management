@@ -1,0 +1,6 @@
+
+
+$host = 'localhost:3306';
+$db_name = 'phonebetheone';
+$username = 'phonebetheone';
+$password = '981026.zyf';
