@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>手机进销存 Ultimate Fixed</title>
+    <title>手机进销存 Ultimate Plus</title>
     <link rel="icon" href="data:,">
-
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
     <style>
         /* 全局样式 */
@@ -37,13 +36,15 @@
         .pos-img { width: 100%; height: 100px; object-fit: cover; background: #f5f7fa; }
         .out-of-stock-mask { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.85); display: flex; justify-content: center; align-items: center; color: #f56c6c; font-weight: bold; font-size: 14px; z-index: 2; border: 2px solid #f56c6c; pointer-events: none; }
 
+        /* [新] 适配型号标签样式 */
+        .remark-tag { font-size: 11px; color: #909399; background: #f4f4f5; padding: 2px 5px; border-radius: 3px; display: block; margin: 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid #e9e9eb; }
+
         .pagination-container { background: #fff; padding: 10px; display: flex; justify-content: flex-end; border-top: 1px solid #eee; flex-wrap: wrap; }
         .detail-card { background: #f9fafc; padding: 15px; border-radius: 4px; margin-bottom: 15px; border: 1px solid #eee; }
         .detail-item { display: flex; margin-bottom: 8px; font-size: 14px; }
         .detail-label { color: #666; width: 70px; flex-shrink: 0; }
         .detail-val { color: #333; font-weight: 500; }
 
-        /* [新增] 手机端悬浮刷新按钮样式 */
         .mobile-refresh-btn {
             position: fixed; right: 20px; z-index: 990;
             width: 56px; height: 56px; border-radius: 50%;
@@ -53,8 +54,6 @@
             transition: all 0.3s;
         }
         .mobile-refresh-btn:active { transform: scale(0.9); background: #f0f2f5; }
-
-        /* 旋转动画 */
         .mobile-refresh-btn .is-loading { animation: rotating 1s linear infinite; }
         @keyframes rotating { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
@@ -113,8 +112,6 @@
                         </template>
                     </el-dropdown>
                 </div>
-
-
             </div>
 
             <div v-if="activeTab === 'dashboard'" style="overflow-y:auto;">
@@ -140,7 +137,7 @@
                                 <el-option label="配件" value="accessory"></el-option>
                                 <el-option label="家电" value="appliance"></el-option>
                             </el-select>
-                            <el-input v-model="searchQuery" placeholder="搜索品牌或型号..." prefix-icon="Search" clearable style="flex:1" @input="posPage=1"></el-input>
+                            <el-input v-model="searchQuery" placeholder="搜索: 型号 / 品牌 / 适配机型(如: NOVA5)" prefix-icon="Search" clearable style="flex:1" @input="posPage=1"></el-input>
                         </div>
                         <div style="flex:1; overflow-y:auto;">
                             <el-row :gutter="8">
@@ -153,6 +150,10 @@
                                         <div style="padding:8px 6px;">
                                             <div style="font-size:12px; color:#666; margin-bottom:2px;">{{ item.brand }} <span v-if="item.accessory_type" style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">{{item.accessory_type}}</span></div>
                                             <div style="font-size:13px; font-weight:bold; height:18px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:#333;">{{ item.model }}</div>
+
+                                            <div class="remark-tag" v-if="item.remark" :title="item.remark">适: {{ item.remark }}</div>
+                                            <div v-else style="height:25px;"></div>
+
                                             <div style="display:flex; justify-content:space-between; margin-top:6px; align-items:center;">
                                                 <span style="color:#f56c6c; font-weight:bold; font-size:14px;">¥{{ item.selling_price }}</span>
                                                 <el-tag size="small" :type="item.stock_quantity>0?'success':'danger'" effect="plain" style="transform:scale(0.9);">{{ item.stock_quantity }}件</el-tag>
@@ -195,30 +196,21 @@
                             <el-option label="配件" value="accessory"></el-option>
                             <el-option label="家电" value="appliance"></el-option>
                         </el-select>
-                        <el-input v-model="searchQuery" placeholder="搜索..." prefix-icon="Search" style="flex:1" @input="invPage=1"></el-input>
+                        <el-input v-model="searchQuery" placeholder="搜索型号、品牌或适配列表..." prefix-icon="Search" style="flex:1" @input="invPage=1"></el-input>
                     </div>
                     <div style="flex:1; overflow:hidden;">
                         <el-table :data="paginatedInvProducts" stripe border height="100%" @sort-change="handleSortChange">
                             <el-table-column v-if="visibleColumns.inventory.images" label="图" width="50"><template #default="s"><el-image :src="s.row.images || defaultImg" style="width:30px;height:30px;border-radius:2px" :preview-src-list="[s.row.images || defaultImg]" preview-teleported hide-on-click-modal></el-image></template></el-table-column>
-
                             <el-table-column v-if="visibleColumns.inventory.type" prop="type" label="类型" width="80" sortable="custom">
-                                <template #default="s">
-                                    <el-tag size="small" :type="s.row.type==='phone'?'':(s.row.type==='appliance'?'warning':'info')">
-                                        {{ {'phone':'手机', 'accessory':'配件', 'appliance':'家电'}[s.row.type] || s.row.type }}
-                                    </el-tag>
-                                </template>
+                                <template #default="s"><el-tag size="small" :type="s.row.type==='phone'?'':(s.row.type==='appliance'?'warning':'info')">{{ {'phone':'手机', 'accessory':'配件', 'appliance':'家电'}[s.row.type] || s.row.type }}</el-tag></template>
                             </el-table-column>
-
                             <el-table-column v-if="visibleColumns.inventory.brand" prop="brand" label="品牌" width="80" show-overflow-tooltip sortable="custom"></el-table-column>
                             <el-table-column v-if="visibleColumns.inventory.model" prop="model" label="型号" min-width="110" show-overflow-tooltip sortable="custom"><template #default="s"><el-tag size="small" type="info" v-if="s.row.accessory_type" style="margin-right:5px">{{s.row.accessory_type}}</el-tag>{{s.row.model}}</template></el-table-column>
 
-                            <el-table-column v-if="visibleColumns.inventory.color" prop="color" label="颜色" width="80" show-overflow-tooltip sortable="custom"></el-table-column>
+                            <el-table-column v-if="visibleColumns.inventory.remark" prop="remark" label="适配机型/备注" min-width="140" show-overflow-tooltip></el-table-column>
 
                             <el-table-column v-if="visibleColumns.inventory.stock_quantity" prop="stock_quantity" label="库存" width="70" sortable="custom"><template #default="s"><span :style="{color:s.row.stock_quantity<5?'red':'green', fontWeight:'bold'}">{{s.row.stock_quantity}}</span></template></el-table-column>
                             <el-table-column v-if="visibleColumns.inventory.selling_price" prop="selling_price" label="售价" width="80" sortable="custom"><template #default="s">¥{{s.row.selling_price}}</template></el-table-column>
-
-                            <el-table-column v-if="visibleColumns.inventory.remark" prop="remark" label="备注" min-width="100" show-overflow-tooltip></el-table-column>
-
                             <el-table-column label="操作" width="60" fixed="right"><template #default="s"><el-button link type="primary" @click="openProductDialog(s.row)">编辑</el-button></template></el-table-column>
                         </el-table>
                     </div>
@@ -285,17 +277,13 @@
                     <el-pagination background layout="total, prev, pager, next, jumper" :total="filteredLogs.length" :page-size="10" v-model:current-page="logPage"></el-pagination>
                 </div>
             </div>
-
         </div>
     </div>
 
     <div v-if="currentUser && activeTab==='pos'" class="hidden-sm-and-up" style="position:fixed; bottom:20px; right:20px; z-index:999;">
         <el-badge :value="cart.length" :max="99"><div @click="mobileCartVisible=true" style="width:56px; height:56px; background:#409EFF; border-radius:50%; display:flex; justify-content:center; align-items:center; box-shadow:0 4px 12px rgba(64,158,255,0.4); color:#fff;"><el-icon size="26"><Wallet /></el-icon></div></el-badge>
     </div>
-
-    <div v-if="currentUser" class="mobile-refresh-btn hidden-sm-and-up"
-         :style="{bottom: (activeTab==='pos' ? '90px' : '20px')}"
-         @click="handleMobileRefresh">
+    <div v-if="currentUser" class="mobile-refresh-btn hidden-sm-and-up" :style="{bottom: (activeTab==='pos' ? '90px' : '20px')}" @click="handleMobileRefresh">
         <el-icon size="26" :class="{'is-loading': loading}"><Refresh /></el-icon>
     </div>
 
@@ -307,32 +295,19 @@
             <div v-if="tableColumnDefs[activeTab] && visibleColumns[activeTab]">
                 <p style="color:#666; font-size:12px; margin-bottom:15px;">勾选需要在列表中显示的列：</p>
                 <div style="display:flex; flex-direction:column; gap:10px;">
-                    <el-checkbox
-                            v-for="col in tableColumnDefs[activeTab]"
-                            :key="col.key"
-                            v-model="visibleColumns[activeTab][col.key]"
-                            :label="col.label"
-                            size="large"
-                            border
-                            @change="saveColumnSettings">
-                    </el-checkbox>
+                    <el-checkbox v-for="col in tableColumnDefs[activeTab]" :key="col.key" v-model="visibleColumns[activeTab][col.key]" :label="col.label" size="large" border @change="saveColumnSettings"></el-checkbox>
                 </div>
             </div>
             <div v-else style="text-align:center; color:#999;">当前页面无可配置项</div>
         </div>
     </el-drawer>
 
-
     <el-dialog v-model="showCheckoutDialog" title="结账确认" width="90%" style="max-width:500px"><el-form :model="checkoutForm" label-width="70px"><el-divider content-position="left">买家信息</el-divider><el-form-item label="姓名"><el-input v-model="checkoutForm.buyer_name" placeholder="请输入姓名(选填)"></el-input></el-form-item><el-form-item label="联系"><el-input v-model="checkoutForm.buyer_phone" placeholder="电话(选填)"></el-input></el-form-item><el-form-item label="地址"><el-input v-model="checkoutForm.buyer_address" placeholder="地址(选填)"></el-input></el-form-item><el-divider content-position="left">支付详情</el-divider><el-form-item label="方式"><el-select v-model="checkoutForm.payment_method" style="width:100%"><el-option value="微信支付" label="微信支付"></el-option><el-option value="支付宝" label="支付宝"></el-option><el-option value="现金" label="现金"></el-option><el-option value="银行卡" label="银行卡"></el-option></el-select></el-form-item><div style="background:#fef0f0; padding:10px; border-radius:4px; margin-top:10px;"><div style="display:flex; justify-content:space-between; margin-bottom:5px; color:#999; font-size:14px;"><span>订单原价:</span><span>¥{{cartTotal}}</span></div><div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-weight:bold;">实收金额:</span><el-input-number v-model="checkoutForm.actual_amount" :min="0" :precision="2" :controls="false" style="width:120px;"></el-input-number></div></div></el-form><template #footer><el-button @click="showCheckoutDialog=false">取消</el-button><el-button type="primary" @click="submitOrder">确认收款</el-button></template></el-dialog>
 
     <el-dialog v-model="showOrderDetailDialog" title="订单详情" width="90%" style="max-width:600px">
         <div class="detail-card"><div class="detail-item"><div class="detail-label">订单号:</div><div class="detail-val">{{currentOrderInfo.order_no}}</div></div><div class="detail-item"><div class="detail-label">时间:</div><div class="detail-val">{{currentOrderInfo.created_at}}</div></div><div class="detail-item"><div class="detail-label">经手人:</div><div class="detail-val">{{currentOrderInfo.handler_name}}</div></div><div class="detail-item"><div class="detail-label">买家:</div><div class="detail-val">{{currentOrderInfo.buyer_name || '-'}} {{currentOrderInfo.buyer_phone}}</div></div><div class="detail-item" v-if="currentOrderInfo.buyer_address"><div class="detail-label">地址:</div><div class="detail-val">{{currentOrderInfo.buyer_address}}</div></div><div class="detail-item"><div class="detail-label">支付:</div><div class="detail-val">{{currentOrderInfo.payment_method}}</div></div></div>
         <el-table :data="currentOrderItems" border size="small" stripe>
-            <el-table-column label="类型" width="60">
-                <template #default="s">
-                    <el-tag size="small">{{ {'phone':'手机', 'accessory':'配件', 'appliance':'家电'}[s.row.type] || s.row.type }}</el-tag>
-                </template>
-            </el-table-column>
+            <el-table-column label="类型" width="60"><template #default="s"><el-tag size="small">{{ {'phone':'手机', 'accessory':'配件', 'appliance':'家电'}[s.row.type] || s.row.type }}</el-tag></template></el-table-column>
             <el-table-column prop="model" label="商品名称"></el-table-column><el-table-column label="原价" width="70"><template #default="s">¥{{s.row.price}}</template></el-table-column><el-table-column prop="quantity" label="数量" width="50"></el-table-column>
         </el-table>
         <div style="margin-top:15px; text-align:right; border-top:1px solid #eee; padding-top:10px;"><div style="color:#999; font-size:14px;">原价总计: ¥{{currentOrderInfo.total_amount}}</div><div style="color:#f56c6c; font-weight:bold; font-size:18px;">实付款: ¥{{currentOrderInfo.actual_amount}}</div></div><div style="margin-top:15px;text-align:center"><el-button @click="showOrderDetailDialog = false" style="width:100%">关闭</el-button></div>
@@ -344,7 +319,7 @@
             <el-form-item label="类型">
                 <el-radio-group v-model="prodForm.type" @change="handleTypeChange">
                     <el-radio label="phone">手机</el-radio>
-                    <el-radio label="accessory">配件</el-radio>
+                    <el-radio label="accessory">配件/膜</el-radio>
                     <el-radio label="appliance">家电</el-radio>
                 </el-radio-group>
             </el-form-item>
@@ -352,17 +327,19 @@
             <el-form-item label="品牌"><el-select v-model="prodForm.brand" filterable allow-create default-first-option placeholder="品牌" style="width: 100%"><el-option v-for="item in uniqueBrands" :key="item" :label="item" :value="item"></el-option></el-select></el-form-item>
             <el-form-item label="型号"><el-select v-model="prodForm.model" filterable allow-create default-first-option :placeholder="prodForm.brand?'型号':'先选品牌'" style="width: 100%"><el-option v-for="item in uniqueModels" :key="item" :label="item" :value="item"></el-option></el-select></el-form-item>
 
-            <el-form-item label="颜色"><el-input v-model="prodForm.color" placeholder="例如：远峰蓝 / 128G"></el-input></el-form-item>
+            <el-form-item label="适配" v-if="prodForm.type==='accessory'">
+                <el-input v-model="prodForm.remark" type="textarea" :rows="3" placeholder="重要: 请在此输入图片中的通用机型列表，用空格隔开。方便收银搜索。"></el-input>
+            </el-form-item>
+            <el-form-item label="颜色" v-else><el-input v-model="prodForm.color" placeholder="例如：远峰蓝 / 128G"></el-input></el-form-item>
+            <el-form-item label="备注" v-if="prodForm.type!=='accessory'"><el-input v-model="prodForm.remark" type="textarea" placeholder="备注信息"></el-input></el-form-item>
 
             <el-form-item label="进价"><el-input v-model="prodForm.purchase_price" type="number"></el-input></el-form-item>
             <el-form-item label="售价"><el-input v-model="prodForm.selling_price" type="number"></el-input></el-form-item>
             <el-form-item label="库存"><el-input-number v-model="prodForm.stock_quantity" :min="0"></el-input-number></el-form-item>
-
-            <el-form-item label="备注"><el-input v-model="prodForm.remark" type="textarea" :rows="2" placeholder="填写机器成色、串号或其他备注"></el-input></el-form-item>
-
         </el-form>
         <template #footer><el-button @click="showProductDialog=false">取消</el-button><el-button type="primary" @click="saveProduct">保存</el-button></template>
     </el-dialog>
+
     <el-dialog v-model="showPwdDialog" title="修改密码" width="80%" style="max-width:400px"><el-form :model="pwdForm" label-width="70px"><el-form-item label="旧密码"><el-input v-model="pwdForm.old_password" type="password"></el-input></el-form-item><el-form-item label="新密码"><el-input v-model="pwdForm.new_password" type="password"></el-input></el-form-item></el-form><template #footer><el-button @click="showPwdDialog=false">取消</el-button><el-button type="primary" @click="changePassword">确认</el-button></template></el-dialog>
     <el-dialog v-model="showUserDialog" title="添加员工" width="80%" style="max-width:400px"><el-form :model="userForm"><el-form-item label="账号"><el-input v-model="userForm.username"></el-input></el-form-item><el-form-item label="姓名"><el-input v-model="userForm.real_name"></el-input></el-form-item><el-form-item label="密码"><el-input v-model="userForm.password"></el-input></el-form-item><el-form-item label="角色"><el-select v-model="userForm.role"><el-option label="员工" value="staff"></el-option><el-option label="管理员" value="admin"></el-option></el-select></el-form-item></el-form><template #footer><el-button @click="showUserDialog=false">取消</el-button><el-button type="primary" @click="addUser">保存</el-button></template></el-dialog>
 </div>
@@ -384,10 +361,8 @@
             const mobileCartVisible = ref(false);
             const API_URL = './api.php';
 
-            // [新增] 默认占位图
             const defaultImg = 'images/default.png';
 
-            // [新增] 表格列定义
             const tableColumnDefs = {
                 inventory: [
                     { key: 'images', label: '图片' },
@@ -397,7 +372,7 @@
                     { key: 'color', label: '颜色' },
                     { key: 'stock_quantity', label: '库存' },
                     { key: 'selling_price', label: '售价' },
-                    { key: 'remark', label: '备注' }
+                    { key: 'remark', label: '适配/备注' }
                 ],
                 orders: [
                     { key: 'order_no', label: '订单号' },
@@ -418,21 +393,8 @@
             const showColumnSettingDrawer = ref(false);
             const currentSort = ref({ prop: '', order: '' });
 
-            // 日志中文映射
-            const logTypeMap = {
-                'LOGIN': '系统登录',
-                'CREATE': '商品入库',
-                'UPDATE': '商品编辑',
-                'SALE': '销售开单',
-                'USER_ADD': '添加员工',
-                'USER_DEL': '删除员工',
-                'PWD_CHANGE': '修改密码'
-            };
-
-            const getLogTagType = (type) => {
-                const map = { 'SALE': 'success', 'CREATE': 'primary', 'UPDATE': 'warning', 'LOGIN': 'info', 'USER_DEL': 'danger' };
-                return map[type] || '';
-            };
+            const logTypeMap = { 'LOGIN': '系统登录', 'CREATE': '商品入库', 'UPDATE': '商品编辑', 'SALE': '销售开单', 'USER_ADD': '添加员工', 'USER_DEL': '删除员工', 'PWD_CHANGE': '修改密码' };
+            const getLogTagType = (type) => { const map = { 'SALE': 'success', 'CREATE': 'primary', 'UPDATE': 'warning', 'LOGIN': 'info', 'USER_DEL': 'danger' }; return map[type] || ''; };
 
             const products = ref([]);
             const users = ref([]);
@@ -473,7 +435,6 @@
             const pageTitles = {dashboard:'仪表盘', pos:'收银台', inventory:'库存管理', orders:'销售历史', staff:'员工管理', logs:'操作日志'};
             let chartInstance = null;
 
-            // [新增] 初始化列设置
             const initColumnSettings = () => {
                 const cached = localStorage.getItem('psi_column_settings');
                 const saved = cached ? JSON.parse(cached) : {};
@@ -485,10 +446,7 @@
                     });
                 }
             };
-
-            const saveColumnSettings = () => {
-                localStorage.setItem('psi_column_settings', JSON.stringify(visibleColumns.value));
-            };
+            const saveColumnSettings = () => { localStorage.setItem('psi_column_settings', JSON.stringify(visibleColumns.value)); };
 
             onMounted(() => {
                 initColumnSettings();
@@ -503,7 +461,6 @@
                 if(!actions[tab]) return;
                 let url = `${API_URL}?action=${actions[tab]}`;
                 if(tab === 'logs' || tab === 'dashboard') url += `&user_id=${currentUser.value.id}`;
-
                 try {
                     const res = await axios.get(url);
                     if(res.data.status === 'success') {
@@ -516,7 +473,6 @@
                 } catch(e){}
             };
 
-            // [新增] 手动刷新 (Mobile)
             const handleMobileRefresh = async () => {
                 loading.value = true;
                 try { await loadData(activeTab.value); ElementPlus.ElMessage.success('刷新成功'); }
@@ -546,23 +502,16 @@
             };
 
             const logout = () => { currentUser.value = null; localStorage.removeItem('psi_user'); loginForm.value = {username:'', password:''}; };
-
             const handleCategoryChange = () => { searchQuery.value = ''; posPage.value = 1; invPage.value = 1; };
 
-            // [新增] 处理类型切换，自动填充价格
             const handleTypeChange = (val) => {
                 if (val === 'phone') { prodForm.value.purchase_price = 1000; prodForm.value.selling_price = 1500; }
                 else if (val === 'appliance') { prodForm.value.purchase_price = 200; prodForm.value.selling_price = 300; }
                 else { prodForm.value.purchase_price = 10; prodForm.value.selling_price = 15; }
             };
 
-            // [新增] 处理排序
-            const handleSortChange = ({ prop, order }) => {
-                currentSort.value = { prop, order };
-                invPage.value = 1;
-            };
+            const handleSortChange = ({ prop, order }) => { currentSort.value = { prop, order }; invPage.value = 1; };
 
-            // --- 跳转逻辑 ---
             const goToSalesHistory = () => {
                 activeTab.value = 'orders';
                 const today = new Date();
@@ -580,25 +529,25 @@
                 loadData('inventory');
             };
 
+            // 【核心修改】搜索逻辑：加入对 remark (适配机型) 的搜索支持
             const filteredProducts = computed(() => {
                 let res = products.value;
                 if (lowStockFilter.value) res = res.filter(p => p.stock_quantity < 5);
                 if (filterCategory.value) res = res.filter(p => p.type === filterCategory.value);
                 if (searchQuery.value) {
                     const q = searchQuery.value.toLowerCase();
-                    res = res.filter(p => p.model.toLowerCase().includes(q) || (p.brand && p.brand.toLowerCase().includes(q)));
+                    res = res.filter(p =>
+                        p.model.toLowerCase().includes(q) ||
+                        (p.brand && p.brand.toLowerCase().includes(q)) ||
+                        (p.remark && p.remark.toLowerCase().includes(q)) // 增加对备注的搜索
+                    );
                 }
-
-                // [新增] 排序逻辑
                 if (currentSort.value.prop && currentSort.value.order) {
                     res = [...res].sort((a, b) => {
                         let valA = a[currentSort.value.prop];
                         let valB = b[currentSort.value.prop];
-                        if (['stock_quantity', 'selling_price', 'purchase_price'].includes(currentSort.value.prop)) {
-                            valA = Number(valA); valB = Number(valB);
-                        } else {
-                            valA = valA ? String(valA).toLowerCase() : ''; valB = valB ? String(valB).toLowerCase() : '';
-                        }
+                        if (['stock_quantity', 'selling_price', 'purchase_price'].includes(currentSort.value.prop)) { valA = Number(valA); valB = Number(valB); }
+                        else { valA = valA ? String(valA).toLowerCase() : ''; valB = valB ? String(valB).toLowerCase() : ''; }
                         if (valA < valB) return currentSort.value.order === 'ascending' ? -1 : 1;
                         if (valA > valB) return currentSort.value.order === 'ascending' ? 1 : -1;
                         return 0;
@@ -610,26 +559,18 @@
             const filteredLogs = computed(() => {
                 let res = logs.value;
                 if (filterLogType.value) res = res.filter(l => l.action_type === filterLogType.value);
-                if (searchQueryLog.value) {
-                    const q = searchQueryLog.value.toLowerCase();
-                    res = res.filter(l => l.content.toLowerCase().includes(q));
-                }
+                if (searchQueryLog.value) res = res.filter(l => l.content.toLowerCase().includes(searchQueryLog.value.toLowerCase()));
                 return res;
             });
-
             const filteredOrders = computed(() => {
                 let res = orders.value;
                 if (searchDate.value) res = res.filter(o => o.created_at.startsWith(searchDate.value));
-                if (searchQueryOrder.value) {
-                    const q = searchQueryOrder.value.toLowerCase();
-                    res = res.filter(o => o.order_no.toLowerCase().includes(q) || (o.buyer_name && o.buyer_name.toLowerCase().includes(q)));
-                }
+                if (searchQueryOrder.value) res = res.filter(o => o.order_no.toLowerCase().includes(searchQueryOrder.value.toLowerCase()) || (o.buyer_name && o.buyer_name.toLowerCase().includes(searchQueryOrder.value.toLowerCase())));
                 return res;
             });
 
             const uniqueBrands = computed(() => Array.from(new Set(products.value.map(p => p.brand).filter(b => b))));
             const uniqueAccessoryTypes = computed(() => Array.from(new Set(products.value.filter(p => ['accessory','appliance'].includes(p.type)).map(p => p.accessory_type).filter(t => t))));
-
             const uniqueModels = computed(() => {
                 const currentBrand = prodForm.value.brand;
                 let relevantProducts = products.value;
@@ -649,29 +590,19 @@
                 if(exist) {
                     if (exist.qty >= item.stock_quantity) return ElementPlus.ElMessage.warning(`库存不足！当前仅有 ${item.stock_quantity} 件`);
                     exist.qty++;
-                } else {
-                    cart.value.push({...item, qty:1});
-                }
+                } else { cart.value.push({...item, qty:1}); }
                 ElementPlus.ElMessage.success('已加入');
             };
 
             const openCheckoutDialog = () => {
                 if(cart.value.length === 0) return;
-                checkoutForm.value = {
-                    buyer_name:'', buyer_phone:'', buyer_address:'', payment_method:'微信支付',
-                    actual_amount: cartTotal.value
-                };
+                checkoutForm.value = { buyer_name:'', buyer_phone:'', buyer_address:'', payment_method:'微信支付', actual_amount: cartTotal.value };
                 showCheckoutDialog.value = true;
             };
 
             const submitOrder = async () => {
                 try {
-                    const payload = {
-                        user_id: currentUser.value.id,
-                        total_amount: cartTotal.value,
-                        items: cart.value,
-                        ...checkoutForm.value
-                    };
+                    const payload = { user_id: currentUser.value.id, total_amount: cartTotal.value, items: cart.value, ...checkoutForm.value };
                     const res = await axios.post(API_URL+'?action=checkout', payload);
                     if(res.data.status === 'success') {
                         ElementPlus.ElMessage.success('收款成功！');
@@ -680,9 +611,7 @@
                         showCheckoutDialog.value = false;
                         loadData('pos');
                         loadData('dashboard');
-                    } else {
-                        ElementPlus.ElMessage.error(res.data.message || '结账失败');
-                    }
+                    } else { ElementPlus.ElMessage.error(res.data.message || '结账失败'); }
                 } catch(e){ ElementPlus.ElMessage.error('网络请求失败'); }
             };
 
@@ -690,23 +619,8 @@
 
             const openProductDialog = (row) => {
                 isEditMode.value=!!row;
-                if(row) {
-                    prodForm.value = { ...row };
-                } else {
-                    // [修改] 初始化默认值
-                    prodForm.value = {
-                        type:'phone',
-                        brand:'',
-                        model:'',
-                        color: '',
-                        remark: '',
-                        purchase_price: 1000,
-                        selling_price: 1500,
-                        stock_quantity: 1,
-                        images:'',
-                        accessory_type: ''
-                    };
-                }
+                if(row) { prodForm.value = { ...row }; }
+                else { prodForm.value = { type:'phone', brand:'', model:'', color: '', remark: '', purchase_price: 1000, selling_price: 1500, stock_quantity: 1, images:'', accessory_type: '' }; }
                 showProductDialog.value=true;
             };
 
@@ -719,32 +633,11 @@
                 } catch(e) { ElementPlus.ElMessage.error('操作失败，请检查填写'); }
             };
 
-            const addUser = async () => {
-                try {
-                    await axios.post(`${API_URL}?action=add_user`, {...userForm.value, operator_id: currentUser.value.id});
-                    ElementPlus.ElMessage.success('添加成功'); showUserDialog.value=false; loadData('staff');
-                } catch(e){ElementPlus.ElMessage.error('失败');}
-            };
-
-            const deleteUser = async (id) => {
-                try {
-                    await axios.post(`${API_URL}?action=delete_user`, {id, operator_id: currentUser.value.id});
-                    ElementPlus.ElMessage.success('删除成功'); loadData('staff');
-                } catch(e){ElementPlus.ElMessage.error('失败');}
-            };
-
+            const addUser = async () => { try { await axios.post(`${API_URL}?action=add_user`, {...userForm.value, operator_id: currentUser.value.id}); ElementPlus.ElMessage.success('添加成功'); showUserDialog.value=false; loadData('staff'); } catch(e){ElementPlus.ElMessage.error('失败');} };
+            const deleteUser = async (id) => { try { await axios.post(`${API_URL}?action=delete_user`, {id, operator_id: currentUser.value.id}); ElementPlus.ElMessage.success('删除成功'); loadData('staff'); } catch(e){ElementPlus.ElMessage.error('失败');} };
             const changePassword = async () => { try { const res = await axios.post(API_URL+'?action=change_password', {...pwdForm.value, user_id:currentUser.value.id}); if(res.data.status==='success') { ElementPlus.ElMessage.success('请重新登录'); logout(); showPwdDialog.value=false; } else ElementPlus.ElMessage.error(res.data.message); } catch(e){ ElementPlus.ElMessage.error('失败'); } };
             const cartTotal = computed(()=>cart.value.reduce((s,i)=>s+i.selling_price*i.qty,0));
-            // ... 在 setup() 内部 ...
-
-            // [新增] 处理导出
-            const handleExport = () => {
-                if (!confirm(`确定要导出当前 ${pageTitles[activeTab.value]} 数据吗？`)) return;
-
-                // 拼接导出链接，直接在新窗口打开即可触发浏览器下载
-                const url = `${API_URL}?action=export&type=${activeTab.value}&user_id=${currentUser.value.id}`;
-                window.open(url, '_blank');
-            };
+            const handleExport = () => { if (!confirm(`确定要导出当前 ${pageTitles[activeTab.value]} 数据吗？`)) return; const url = `${API_URL}?action=export&type=${activeTab.value}&user_id=${currentUser.value.id}`; window.open(url, '_blank'); };
 
             return {
                 currentUser, loginForm, handleLogin, logout,
@@ -762,7 +655,6 @@
                 uniqueBrands, uniqueModels, uniqueAccessoryTypes,
                 logTypeMap, getLogTagType,
                 showCheckoutDialog, checkoutForm,
-                // [新增导出]
                 handleTypeChange, defaultImg, handleMobileRefresh,
                 currentSort, handleSortChange,
                 tableColumnDefs, visibleColumns, showColumnSettingDrawer, saveColumnSettings,handleExport

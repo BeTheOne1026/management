@@ -1,5 +1,5 @@
 <?php
-// api.php - Ultimate Monolith Version
+// api.php - 完整功能版
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
@@ -23,7 +23,9 @@ $action = $_GET['action'] ?? '';
 $input = json_decode(file_get_contents("php://input"), true) ?? $_POST;
 
 function addLog($pdo, $uid, $type, $content) {
-    $pdo->prepare("INSERT INTO system_logs (user_id, action_type, content) VALUES (?,?,?)")->execute([$uid, $type, $content]);
+    try {
+        $pdo->prepare("INSERT INTO system_logs (user_id, action_type, content) VALUES (?,?,?)")->execute([$uid, $type, $content]);
+    } catch (Exception $e) { /* ignore log error */ }
 }
 
 try {
@@ -49,7 +51,6 @@ try {
             'today_profit' => 0
         ];
 
-        // 管理员看利润
         $uid = $_GET['user_id'] ?? 0;
         $role = $pdo->query("SELECT role FROM users WHERE id=$uid")->fetchColumn();
         if ($role === 'admin') {
@@ -70,7 +71,7 @@ try {
         echo json_encode(['status'=>'success', 'data'=>$res]);
     }
 
-    // 4. 商品列表
+    // 4. 商品列表 (返回所有字段，包括remark用于前端搜索)
     elseif ($action == 'products') {
         echo json_encode(['status'=>'success', 'data'=>$pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll()]);
     }
@@ -84,9 +85,7 @@ try {
     }
 
     // 6. 新增商品
-    // 6. 新增商品
     elseif ($action == 'add_product') {
-        // [修复] 如果进价/售价为空，默认为 0，防止 SQL 报错
         $p_price = is_numeric($input['purchase_price']) ? $input['purchase_price'] : 0;
         $s_price = is_numeric($input['selling_price']) ? $input['selling_price'] : 0;
 
@@ -97,9 +96,9 @@ try {
                 $input['brand'],
                 $input['model'],
                 $input['color'] ?? null,
-                $input['remark'] ?? null,
-                $p_price, // 使用处理后的变量
-                $s_price, // 使用处理后的变量
+                $input['remark'] ?? null, // 备注字段用于存储通用型号
+                $p_price,
+                $s_price,
                 $input['stock_quantity'],
                 $input['images'],
                 $input['user_id']
@@ -110,13 +109,9 @@ try {
         echo json_encode(['status'=>'success']);
     }
 
-    // 7. 更新商品 (含Diff)
-    // 7. 更新商品 (含Diff)
-    // 7. 更新商品 (含Diff)
+    // 7. 更新商品
     elseif ($action == 'update_product') {
         $old = $pdo->query("SELECT * FROM products WHERE id={$input['id']}")->fetch();
-
-        // [修复] 同样处理更新时的空值
         $p_price = is_numeric($input['purchase_price']) ? $input['purchase_price'] : 0;
         $s_price = is_numeric($input['selling_price']) ? $input['selling_price'] : 0;
 
@@ -128,18 +123,16 @@ try {
                 $input['model'],
                 $input['color'] ?? null,
                 $input['remark'] ?? null,
-                $p_price, // 使用处理后的变量
-                $s_price, // 使用处理后的变量
+                $p_price,
+                $s_price,
                 $input['stock_quantity'],
                 $input['images'],
                 $input['id']
             ]);
 
         $diff = [];
-        // [新增] 记录颜色和备注的变更日志
-        if(($old['color']??'') != ($input['color']??'')) $diff[]="颜色:{$old['color']}->{$input['color']}";
-        if(($old['remark']??'') != ($input['remark']??'')) $diff[]="备注修改"; // 备注太长通常不全记录
-
+        if(($old['color']??'') != ($input['color']??'')) $diff[]="颜色变更";
+        if(($old['remark']??'') != ($input['remark']??'')) $diff[]="适配/备注变更";
         if($old['stock_quantity']!=$input['stock_quantity']) $diff[]="库存:{$old['stock_quantity']}->{$input['stock_quantity']}";
         if($old['selling_price']!=$input['selling_price']) $diff[]="售价:{$old['selling_price']}->{$input['selling_price']}";
 
@@ -177,7 +170,7 @@ try {
         echo json_encode(['status'=>'success', 'data'=>$pdo->query("SELECT oi.*, p.brand, p.model, p.type, p.accessory_type FROM order_items oi LEFT JOIN products p ON oi.product_id=p.id WHERE oi.order_id={$_GET['order_id']}")->fetchAll()]);
     }
 
-    // 11. 日志 (权限)
+    // 11. 日志
     elseif ($action == 'logs') {
         $uid = $_GET['user_id'];
         $role = $pdo->query("SELECT role FROM users WHERE id=$uid")->fetchColumn();
@@ -203,15 +196,11 @@ try {
         addLog($pdo, $input['user_id'], 'PWD_CHANGE', "修改密码");
         echo json_encode(['status'=>'success']);
     }
-    // ... 前面的代码 ...
 
-    // [修改] 13. 数据导出 (修复 fputcsv 警告)
+    // 13. 导出 (Export)
     elseif ($action == 'export') {
-        // 0. 防止警告破坏文件 (关键)
         error_reporting(0);
         ini_set('display_errors', 0);
-
-        // 1. 权限验证
         $uid = $_GET['user_id'] ?? 0;
         $role = $pdo->query("SELECT role FROM users WHERE id=$uid")->fetchColumn();
         if ($role !== 'admin') { http_response_code(403); echo "Access Denied"; exit; }
@@ -219,26 +208,15 @@ try {
         $type = $_GET['type'] ?? '';
         $filename = "export_{$type}_" . date('Ymd_His') . ".csv";
 
-        // 2. 设置头信息
         header('Content-Type: text/csv; charset=utf-8');
         header("Content-Disposition: attachment; filename=\"$filename\"");
-
-        // 3. 输出 BOM 头
         echo "\xEF\xBB\xBF";
 
         $output = fopen('php://output', 'w');
+        function writeCsvRow($handle, $data) { fputcsv($handle, $data, ",", "\"", "\\"); }
 
-        // 定义一个兼容的写行函数，自动补全参数
-        // 参数说明: $handle, $fields, $separator, $enclosure, $escape
-        function writeCsvRow($handle, $data) {
-            fputcsv($handle, $data, ",", "\"", "\\");
-        }
-
-        // 4. 根据类型导出不同数据
         if ($type == 'inventory') {
-            // 表头
-            writeCsvRow($output, ['ID', '类型', '二级分类', '品牌', '型号', '颜色', '进价', '售价', '库存', '备注', '入库时间']);
-            // 数据
+            writeCsvRow($output, ['ID', '类型', '二级分类', '品牌', '型号', '颜色', '进价', '售价', '库存', '备注/适配', '入库时间']);
             $rows = $pdo->query("SELECT id, type, accessory_type, brand, model, color, purchase_price, selling_price, stock_quantity, remark, created_at FROM products ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
             foreach($rows as $row) {
                 $row['type'] = ($row['type']=='phone'?'手机':($row['type']=='accessory'?'配件':'家电'));
@@ -262,12 +240,9 @@ try {
             $rows = $pdo->query("SELECT id, username, real_name, role, created_at FROM users")->fetchAll(PDO::FETCH_ASSOC);
             foreach($rows as $row) writeCsvRow($output, $row);
         }
-
         fclose($output);
         exit;
     }
-
-    // ... catch (Exception $e) ...
 
 } catch (Exception $e) { echo json_encode(['status'=>'error', 'message'=>$e->getMessage()]); }
 ?>

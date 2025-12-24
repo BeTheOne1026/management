@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>精准导入工具 - 防止误改手机壳</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { padding: 20px; font-family: sans-serif; background: #f5f7fa; }
+        .box-card { max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1); }
+        .step { margin-bottom: 20px; border-bottom: 1px dashed #eee; padding-bottom: 20px; }
+        .log-box { background: #333; color: #fff; padding: 10px; height: 350px; overflow-y: auto; font-family: monospace; border-radius: 4px; font-size: 12px; }
+        .log-success { color: #67C23A; }
+        .log-warn { color: #E6A23C; }
+        .log-error { color: #F56C6C; }
+        .log-info { color: #909399; }
+        .excel-demo { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .excel-demo th, .excel-demo td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 13px; }
+        .excel-demo th { background: #f0f2f5; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="box-card">
+        <h2>🛡️ 安全导入工具 (分类隔离版)</h2>
+        <el-alert title="本工具支持按分类过滤，防止将‘膜’的通用关系误用到‘壳’上。" type="success" show-icon :closable="false" style="margin-bottom:20px;"></el-alert>
+
+        <div v-if="!currentUser" class="step">
+            <h3>1. 管理员登录</h3>
+            <el-form inline>
+                <el-form-item><el-input v-model="loginForm.username" placeholder="账号"></el-input></el-form-item>
+                <el-form-item><el-input v-model="loginForm.password" type="password" placeholder="密码"></el-input></el-form-item>
+                <el-form-item><el-button type="primary" @click="handleLogin">登录</el-button></el-form-item>
+            </el-form>
+        </div>
+
+        <div v-else>
+            <div class="step">
+                <h3>2. 安全过滤设置 <span style="color:#F56C6C; font-size:14px;">(关键步骤)</span></h3>
+                <el-form label-width="120px">
+                    <el-form-item label="限制商品分类">
+                        <el-input v-model="targetCategory" placeholder="例如：膜" style="width: 200px;"></el-input>
+                        <span style="color:#666; font-size:12px; margin-left:10px;">
+                            (重要：填“膜”则只更新钢化膜，填“壳”只更新手机壳。不填则全部更新)
+                        </span>
+                    </el-form-item>
+                    <el-form-item label="匹配模式">
+                        <el-radio-group v-model="matchMode">
+                            <el-radio label="strict">精确匹配 (推荐)</el-radio>
+                            <el-radio label="fuzzy" disabled>模糊匹配 (已禁用以保安全)</el-radio>
+                        </el-radio-group>
+                        <div style="font-size:12px; color:#999; line-height:1.5;">
+                            * 精确匹配：忽略大小写，但字符必须完全一致。<br>
+                            例如 Excel填 "X23"，能匹配 "vivo X23"，但<b>不会</b>匹配 "X23幻彩版"。
+                        </div>
+                    </el-form-item>
+                </el-form>
+            </div>
+
+            <div class="step">
+                <h3>3. Excel 格式要求</h3>
+                <p style="font-size:14px; color:#666;">Excel 需要有表头(第一行)，数据从第二行开始：</p>
+                <table class="excel-demo">
+                    <tr><th width="100">A列 (品牌)</th><th width="100">B列 (型号)</th><th>C列 (通用组ID)</th></tr>
+                    <tr><td>VIVO</td><td>X23</td><td>1</td></tr>
+                    <tr><td>华为</td><td>NOVA5</td><td>1</td></tr>
+                    <tr><td>OPPO</td><td>R17</td><td>1</td></tr>
+                    <tr><td>...</td><td>...</td><td>...</td></tr>
+                </table>
+            </div>
+
+            <div class="step" style="border-bottom:none;">
+                <h3>4. 上传并分析</h3>
+                <div style="display:flex; gap: 10px; align-items:center; margin-bottom: 15px;">
+                    <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="handleFile" accept=".xlsx, .xls">
+                        <el-button type="primary" size="large" icon="FolderOpened">选择 Excel 文件</el-button>
+                    </el-upload>
+                    <div v-if="processing"><i class="el-icon-loading"></i> 数据分析中...</div>
+                </div>
+
+                <div v-if="logs.length > 0">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                        <strong>执行日志：</strong>
+                        <el-button v-if="readyToUpdate" type="success" size="default" @click="confirmUpdate">
+                            确认无误，更新 {{ updateQueue.length }} 个商品
+                        </el-button>
+                    </div>
+                    <div class="log-box" ref="logBox">
+                        <div v-for="(log, i) in logs" :key="i" :class="'log-'+log.type">
+                            <span style="opacity:0.5;">[{{ log.time }}]</span> {{ log.msg }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const { createApp, ref, nextTick } = Vue;
+    const API_URL = './api.php';
+
+    createApp({
+        setup() {
+            const currentUser = ref(null);
+            const loginForm = ref({username:'', password:''});
+            const targetCategory = ref('膜'); // 默认只更新膜
+            const matchMode = ref('strict');
+
+            const logs = ref([]);
+            const logBox = ref(null);
+            const processing = ref(false);
+            const readyToUpdate = ref(false);
+            const updateQueue = ref([]);
+
+            const addLog = (type, msg) => {
+                const time = new Date().toLocaleTimeString('en-GB');
+                logs.value.push({ type, msg, time });
+                nextTick(() => { if(logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight; });
+            };
+
+            const handleLogin = async () => {
+                try {
+                    const res = await axios.post(`${API_URL}?action=login`, loginForm.value);
+                    if (res.data.status === 'success') {
+                        currentUser.value = res.data.data;
+                        addLog('success', `登录成功: ${currentUser.value.real_name}`);
+                    } else alert(res.data.message);
+                } catch (e) { alert('网络错误'); }
+            };
+
+            const handleFile = (file) => {
+                logs.value = [];
+                updateQueue.value = [];
+                readyToUpdate.value = false;
+                processing.value = true;
+
+                addLog('info', `准备读取文件... 过滤条件: [分类包含 "${targetCategory.value}"]`);
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        // 1. 读取 Excel
+                        const data = new Uint8Array(e.target.result);
+                        const wb = XLSX.read(data, {type: 'array'});
+                        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1});
+
+                        if (rows.length < 2) {
+                            addLog('error', 'Excel 数据为空或缺少表头！');
+                            return;
+                        }
+
+                        // 2. 获取数据库库存
+                        addLog('info', '正在下载最新库存数据...');
+                        const res = await axios.get(`${API_URL}?action=products`);
+                        const allProducts = res.data.data || [];
+                        addLog('info', `库存共 ${allProducts.length} 个商品。`);
+
+                        // 3. 整理 Excel 数据 (按 C列 组ID 分组)
+                        const groups = {};
+                        let validExcelRows = 0;
+                        rows.forEach((row, idx) => {
+                            if (idx === 0) return; // 跳过表头
+                            const brand = String(row[0]||'').trim();
+                            const model = String(row[1]||'').trim();
+                            const gid = String(row[2]||'').trim();
+                            if(brand && model && gid) {
+                                if(!groups[gid]) groups[gid] = [];
+                                groups[gid].push({brand, model});
+                                validExcelRows++;
+                            }
+                        });
+                        addLog('info', `识别到 ${Object.keys(groups).length} 个通用组，共 ${validExcelRows} 行有效数据。`);
+
+                        // 4. 匹配与过滤
+                        let matchCount = 0;
+                        let skipCount = 0; // 因分类不符跳过
+                        let notFoundCount = 0; // 因型号没找到跳过
+
+                        for (const [gid, items] of Object.entries(groups)) {
+                            // 生成备注字符串： X23 / Nova5 / ...
+                            const uniqueModels = [...new Set(items.map(i => i.model))];
+                            const remarkStr = uniqueModels.join(' / ');
+
+                            addLog('info', `--- 分析通用组 ${gid} (包含: ${remarkStr}) ---`);
+
+                            items.forEach(excelItem => {
+                                // 在库存里找这个型号
+                                // 逻辑：品牌+型号匹配 (忽略大小写)
+                                const targets = allProducts.filter(p =>
+                                    p.brand.trim().toUpperCase() === excelItem.brand.toUpperCase() &&
+                                    p.model.trim().toUpperCase() === excelItem.model.toUpperCase()
+                                );
+
+                                if (targets.length === 0) {
+                                    addLog('warn', `未找到商品: ${excelItem.brand} - ${excelItem.model}`);
+                                    notFoundCount++;
+                                } else {
+                                    // 找到了商品，现在检查“类型过滤”
+                                    targets.forEach(target => {
+                                        // 检查 accessory_type 是否包含用户输入的关键词 (如 "膜")
+                                        const currentType = String(target.accessory_type || '');
+                                        const filterKey = targetCategory.value.trim();
+
+                                        if (filterKey && !currentType.includes(filterKey)) {
+                                            // 类型不符，跳过
+                                            addLog('info', `跳过: ${target.model} (类型是"${currentType}"，不含"${filterKey}")`);
+                                            skipCount++;
+                                        } else {
+                                            // 类型符合，加入更新队列
+                                            updateQueue.value.push({
+                                                ...target,
+                                                remark: remarkStr // 更新备注
+                                            });
+                                            addLog('success', `✅ 匹配: [${target.brand} ${target.model}] (${currentType}) -> 待更新`);
+                                            matchCount++;
+                                        }
+                                    });
+                                }
+                            });
+                        }
+
+                        addLog('info', `分析完成。待更新: ${matchCount} 个。跳过(类型不符): ${skipCount} 个。未找到: ${notFoundCount} 个。`);
+                        if(matchCount > 0) readyToUpdate.value = true;
+
+                    } catch (err) {
+                        console.error(err);
+                        addLog('error', '处理出错: ' + err.message);
+                    } finally {
+                        processing.value = false;
+                    }
+                };
+                reader.readAsArrayBuffer(file.raw);
+            };
+
+            const confirmUpdate = async () => {
+                if (!confirm(`即将更新 ${updateQueue.value.length} 个商品的备注，确定吗？`)) return;
+
+                processing.value = true;
+                let success = 0;
+                for (const item of updateQueue.value) {
+                    try {
+                        await axios.post(`${API_URL}?action=update_product`, {
+                            ...item,
+                            user_id: currentUser.value.id
+                        });
+                        success++;
+                    } catch(e) {}
+                }
+                processing.value = false;
+                readyToUpdate.value = false;
+                addLog('success', `🎉 全部完成！成功更新 ${success} 条数据。`);
+                alert('更新成功！');
+            };
+
+            return {
+                currentUser, loginForm, handleLogin,
+                targetCategory, matchMode,
+                logs, logBox, handleFile, processing,
+                readyToUpdate, updateQueue, confirmUpdate
+            };
+        }
+    }).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>
